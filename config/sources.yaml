@@ -1,0 +1,53 @@
+# Feed registry for the sci pipeline.
+#
+# independence:
+#   1.0  original reporting with its own newsroom and editorial judgement
+#   0.5  mixed: some original reporting, heavy syndication
+#   0.0  press-release republisher — echoes the institutional PR near-verbatim.
+#
+# A story confirmed only by independence-0.0 outlets is NOT corroborated.
+# It is the same press release counted several times. The pipeline records
+# those separately as `echo` and never as `independent`.
+
+primary:
+  - id: science_news
+    name: Science — Latest News
+    url: https://www.science.org/rss/news_current.xml
+    lang: en
+
+corroborators:
+  - id: nature
+    name: Nature
+    url: https://www.nature.com/nature.rss
+    independence: 1.0
+    lang: en
+
+  - id: ars_science
+    name: Ars Technica — Science
+    url: https://arstechnica.com/science/feed/
+    independence: 1.0
+    lang: en
+
+  - id: phys_org
+    name: Phys.org
+    url: https://phys.org/rss-feed/
+    independence: 0.0
+    lang: en
+
+  - id: sciencedaily
+    name: ScienceDaily
+    url: https://www.sciencedaily.com/rss/all.xml
+    independence: 0.0
+    lang: en
+
+  - id: medicalxpress
+    name: MedicalXpress
+    url: https://medicalxpress.com/rss-feed/
+    independence: 0.0
+    lang: en
+
+# Deliberately absent:
+#   eurekalert  — every documented feed path returns 404 (checked 2026-08-03).
+#   altmetric   — public API returns 403 without a key.
+# Do not re-add without re-probing; a silently dead feed looks like
+# "no corroboration found" and biases every score downward.

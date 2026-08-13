@@ -1,0 +1,73 @@
+# Thresholds and editorial policy. Every number here is a lever you can
+# defend in public; none of them are hidden inside the code.
+
+fetch:
+  user_agent: "sci-pipeline/0.1 (+https://github.com/meta-agentic/meta-science)"
+  timeout_seconds: 25
+  # Politeness delay between HTTP calls to the same host.
+  delay_seconds: 1.0
+
+binding:
+  # Window, in days, around the news date in which the underlying paper
+  # is expected to have been published.
+  lookback_days: 30
+  lookahead_days: 7
+  max_candidates: 25
+  # Similarity above which we consider the paper positively identified.
+  bound_threshold: 0.38
+  # Between weak and bound we keep the candidate but mark it unconfirmed.
+  weak_threshold: 0.22
+  # Journals whose presence slightly boosts a candidate, because Science
+  # news overwhelmingly covers these.
+  venue_boost:
+    - science
+    - nature
+    - cell
+    - "new england journal of medicine"
+    - lancet
+    - pnas
+    - "nature medicine"
+    - "science advances"
+
+corroboration:
+  # Days either side of the Science item in which a matching story counts.
+  window_days: 4
+  # Title-similarity floor for two stories to be "the same story".
+  match_threshold: 0.34
+
+claims:
+  # A quantity claim is only accepted if its number literally appears in
+  # a source text. This is checked in Python, never by the model.
+  numeric_tolerance: 0.0
+  max_claims_per_item: 12
+
+hype:
+  # Penalty points per red flag; hype_score is the sum, capped at 100.
+  penalties:
+    animal_only: 25
+    small_sample: 20
+    no_control: 15
+    causal_overreach: 30
+    preprint: 15
+    press_release_only: 25
+    unbound_primary: 20
+  small_sample_threshold: 30
+
+gate:
+  # A draft is only written when the item clears this bar. Everything else
+  # is routed to the review queue with the reason attached.
+  require_primary_or_independent: true
+  min_independent_corroborators: 2
+  max_hype_score: 60
+  min_verified_claims: 1
+
+draft:
+  lang: it
+  # Divulgativo but precise. These are passed verbatim to the model.
+  register: >
+    Italiano divulgativo e preciso. Rivolto a un lettore curioso e non
+    specialista. Niente sensazionalismo, niente superlativi, niente
+    "rivoluzionario" o "storico". I numeri vanno riportati esattamente come
+    verificati. Se una cosa non e' certa, dillo.
+  max_words: 320
+  model: claude-sonnet-5

@@ -1,0 +1,30 @@
+# Local pipeline state — regenerable, and specific to one machine's run history.
+data/
+drafts/
+!drafts/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Never commit a generated launchd job: it contains absolute local paths.
+scripts/*.generated.plist
+
+# Instance data. This repository is public; agent session logs, neural pattern
+# caches and policy state describe one machine's private working history and
+# must never be published from here.
+.claude-flow/
+.swarm/
+.agentic-qe/
+*.rvf
+*.rvf.*
+.claude/settings.local.json
+
+# macOS
+.DS_Store
