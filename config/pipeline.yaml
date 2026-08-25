@@ -2,7 +2,7 @@
 # defend in public; none of them are hidden inside the code.
 
 fetch:
-  user_agent: "sci-pipeline/0.1 (+https://github.com/meta-agentic/meta-science)"
+  user_agent: "sci-pipeline/0.1 (+https://github.com/meta-agentic/meta-science-dissemination)"
   timeout_seconds: 25
   # Politeness delay between HTTP calls to the same host.
   delay_seconds: 1.0
