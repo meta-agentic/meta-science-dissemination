@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .bind import Binding, Unbound
 from .config import Settings
 from .llm import LLM, LLMUnavailable
 from .store import Item
@@ -24,6 +25,9 @@ from .hype import _CAUSAL, _CORRELATIONAL
 VERIFIED = "verified"
 UNSUPPORTED = "unsupported"
 HEDGED = "hedged"
+# Checked and contradicted (`unsupported`) is not the same as never checkable
+# (`unverifiable`). Collapsing them is how absence of evidence became a pass.
+UNVERIFIABLE = "unverifiable"
 
 _SYSTEM = (
     "You extract atomic factual claims from science journalism for a "
@@ -74,9 +78,6 @@ def _verify_causal(claim: dict[str, Any], abstract: str, sources: list[str]) -> 
     if status != VERIFIED:
         return status, reason
 
-    if not abstract:
-        return HEDGED, "no abstract available to confirm a causal reading"
-
     normalised = normalize(abstract)
     if _CAUSAL.search(normalised):
         return VERIFIED, "abstract uses causal language"
@@ -102,9 +103,29 @@ def _verify_textual(claim: dict[str, Any], sources: list[str]) -> tuple[str, str
 
 
 def verify(claim: dict[str, Any], item: Item, abstract: str) -> dict[str, Any]:
-    """Attach a verdict and a reason to one proposed claim."""
-    sources = [t for t in (abstract, item.text) if t]
+    """Attach a verdict and a reason to one proposed claim.
+
+    INV-1 is enforced here, at the single point where it matters. The news text
+    is deliberately **not** a source: it is where the claim was extracted from,
+    so confirming a claim against it proves only that the model can copy. With
+    no abstract there is nothing independent to check against, and the honest
+    verdict is `unverifiable` — not a pass, and not a contradiction.
+    """
     kind = str(claim.get("type") or "generalisation").lower()
+
+    if not (abstract or "").strip():
+        return {
+            "text": str(claim.get("text", "")).strip(),
+            "type": kind,
+            "numbers": [str(n) for n in (claim.get("numbers") or [])],
+            "evidence": str(claim.get("evidence", "")).strip(),
+            "status": UNVERIFIABLE,
+            "reason": "no primary abstract: nothing independent to check against",
+            "checked_against": "none",
+        }
+
+    # The abstract, and only the abstract.
+    sources = [abstract]
 
     if kind == "quantity":
         status, reason = _verify_quantity(claim, sources)
@@ -120,22 +141,24 @@ def verify(claim: dict[str, Any], item: Item, abstract: str) -> dict[str, Any]:
         "evidence": str(claim.get("evidence", "")).strip(),
         "status": status,
         "reason": reason,
-        # Recorded so an audit can tell a claim checked against a real
-        # abstract from one checked against a headline alone.
-        "checked_against": "abstract+news" if abstract else "news_only",
+        # Always the abstract now; recorded so an audit can prove it.
+        "checked_against": "abstract",
     }
 
 
-def extract(item: Item, binding: dict[str, Any], llm: LLM,
+def extract(item: Item, binding: Binding, llm: LLM,
             settings: Settings) -> list[dict[str, Any]]:
     """Propose claims with the model, then verify each one in code."""
     max_claims = int(settings.pipeline.get("claims", "max_claims_per_item"))
-    abstract = str(binding.get("abstract") or "")
+    # INV-1. Only a bound or weak binding carries text to verify against;
+    # reaching for `.abstract` on an Unbound is a type error, not an empty
+    # string that would let a claim be checked against its own source.
+    abstract = "" if isinstance(binding, Unbound) else binding.abstract
 
     prompt = _PROMPT.format(
         title=item.title,
         summary=item.summary or "(none provided)",
-        binding_status=binding.get("status", "unbound"),
+        binding_status=binding.status,
         abstract=abstract or "(the underlying study could not be identified)",
         max_claims=max_claims,
     )
@@ -148,14 +171,14 @@ def extract(item: Item, binding: dict[str, Any], llm: LLM,
         # producing a post backed by nothing.
         return [{
             "text": "", "type": "error", "numbers": [], "evidence": "",
-            "status": UNSUPPORTED, "reason": f"claim extraction failed: {exc}",
+            "status": UNVERIFIABLE, "reason": f"claim extraction failed: {exc}",
             "checked_against": "none",
         }]
 
     if not isinstance(proposed, list):
         return [{
             "text": "", "type": "error", "numbers": [], "evidence": "",
-            "status": UNSUPPORTED, "reason": "model did not return a JSON array",
+            "status": UNVERIFIABLE, "reason": "model did not return a JSON array",
             "checked_against": "none",
         }]
 

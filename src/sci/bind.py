@@ -16,12 +16,13 @@ science post than an admitted gap.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, ClassVar
 
 from .config import Settings
 from .store import Item
@@ -58,6 +59,146 @@ class Candidate:
             "score": round(self.score, 4), "components": self.components,
             "abstract": self.abstract,
         }
+
+
+@dataclass(frozen=True)
+class Rejection:
+    """A candidate discarded before scoring, and the rule that discarded it.
+
+    Retained because "we found the paper but it was a preprint" and "we found
+    nothing at all" are different editorial situations, and a ledger that
+    cannot tell them apart cannot explain itself later.
+    """
+
+    doi: str | None
+    title: str
+    rule: str
+    reason: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"doi": self.doi, "title": self.title[:200],
+                "rule": self.rule, "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class Bound:
+    """A positively identified primary source, carrying its abstract.
+
+    The abstract is non-empty by construction. That is the whole point of the
+    type: binding exists to obtain independent text to verify claims against,
+    so a binding without that text is not a weaker binding, it is not one.
+    """
+
+    status: ClassVar[str] = BOUND
+
+    candidate: Candidate
+    abstract: str
+    score: float
+    runners_up: tuple[Candidate, ...] = ()
+    rejected: tuple[Rejection, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not (self.abstract or "").strip():
+            raise ValueError(
+                f"{type(self).__name__} requires a non-empty abstract; "
+                "a binding with no verification substrate must be Unbound"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "best": self.candidate.as_dict(),
+            "abstract": self.abstract,
+            "score": round(self.score, 4),
+            "runners_up": [c.as_dict() for c in self.runners_up],
+            "rejected": [r.as_dict() for r in self.rejected],
+        }
+
+
+@dataclass(frozen=True)
+class Weak(Bound):
+    """Identified, but below the confidence threshold.
+
+    Still carries an abstract, so claims can still be verified against real
+    primary text and INV-1 holds. The lower score travels with the draft.
+    """
+
+    status: ClassVar[str] = WEAK
+
+
+@dataclass(frozen=True)
+class Unbound:
+    """No primary source could be identified.
+
+    Deliberately has **no** `abstract` attribute. Verification code that reaches
+    for `binding.abstract` on one of these raises AttributeError during
+    development, rather than silently receiving an empty string and comparing a
+    claim against nothing — which is exactly how the spike published four
+    self-verified items.
+    """
+
+    status: ClassVar[str] = UNBOUND
+
+    reason: str
+    rejected: tuple[Rejection, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "reason": self.reason,
+            "best": None,
+            "runners_up": [],
+            "rejected": [r.as_dict() for r in self.rejected],
+        }
+
+
+Binding = Bound | Weak | Unbound
+
+
+def is_valid_candidate(candidate: Candidate, item: Item,
+                       settings: Settings) -> tuple[bool, str, str]:
+    """Whether a candidate could be the study this news item is about.
+
+    Checked **before** scoring, and a failure discards the candidate rather
+    than down-weighting it: a news article scoring 0.55 against itself is
+    arithmetically correct and editorially worthless, and no tie-breaker should
+    be able to rescue it.
+
+    Returns (ok, rule, reason).
+    """
+    binding_cfg = settings.pipeline.section("binding")
+
+    # V1 — identity. An item cannot be its own primary source.
+    own = (item.doi or "").strip().lower()
+    cand = (candidate.doi or "").strip().lower()
+    if own and cand and own == cand:
+        return False, "V1", "candidate is the news item itself"
+
+    # V2 — editorial venue. Publishers index their own journalism as works;
+    # this is the container the spike matched against, four times out of four.
+    venue = normalize(candidate.venue)
+    for editorial in binding_cfg.get("editorial_venues", []):
+        if venue and normalize(editorial) in venue:
+            return False, "V2", f"venue '{candidate.venue}' publishes journalism, not studies"
+
+    # V3 — DOI shape. News DOIs carry an opaque suffix where research carries
+    # a structured one.
+    for pattern in binding_cfg.get("news_doi_patterns", []):
+        if cand and re.match(pattern, cand):
+            return False, "V3", f"DOI '{candidate.doi}' matches a news-content pattern"
+
+    # V4 — work type. Editorials, letters and errata are not the study.
+    allowed = {str(x).lower() for x in binding_cfg.get("research_types", [])}
+    kind = (candidate.type or "").strip().lower()
+    if allowed and kind and kind not in allowed:
+        return False, "V4", f"work type '{candidate.type}' is not research"
+
+    # V5 — the invariant. Without an abstract there is nothing to verify
+    # against, however well the title matches.
+    if not (candidate.abstract or "").strip():
+        return False, "V5", "no abstract: cannot serve as a verification substrate"
+
+    return True, "", "valid"
 
 
 def _get_json(url: str, *, user_agent: str, timeout: int) -> dict[str, Any]:
@@ -207,12 +348,14 @@ def _score(candidate: Candidate, item: Item, settings: Settings) -> Candidate:
     return candidate
 
 
-def bind_item(item: Item, settings: Settings) -> dict[str, Any]:
-    """Identify the primary source behind a news item.
+def bind_item(item: Item, settings: Settings) -> Binding:
+    """Identify the primary source behind a news item, or say honestly that we
+    could not.
 
-    Returns an evidence record: the chosen candidate, its score and the
-    runners-up, so a disputed binding can be re-examined without re-running
-    the network calls.
+    Validity is checked before scoring (see `is_valid_candidate`), so an
+    invalid candidate cannot be rescued by date proximity or venue prestige.
+    Every rejection is retained on the result: the ledger must be able to
+    distinguish "found a preprint" from "found nothing".
     """
     agent = str(settings.pipeline.get("fetch", "user_agent"))
     timeout = int(settings.pipeline.get("fetch", "timeout_seconds"))
@@ -223,32 +366,42 @@ def bind_item(item: Item, settings: Settings) -> dict[str, Any]:
     if not candidates:
         candidates = _search_crossref(item, settings, agent, timeout)
 
-    scored = sorted(
-        (_score(c, item, settings) for c in candidates if c.title),
-        key=lambda c: c.score,
-        reverse=True,
-    )
-    if not scored:
-        return {
-            "status": UNBOUND, "reason": "no candidate returned by any catalogue",
-            "best": None, "runners_up": [], "abstract": "",
-        }
+    if not candidates:
+        return Unbound(reason="no candidate returned by any catalogue")
 
-    best = scored[0]
+    valid: list[Candidate] = []
+    rejected: list[Rejection] = []
+    for candidate in candidates:
+        if not candidate.title:
+            continue
+        ok, rule, reason = is_valid_candidate(candidate, item, settings)
+        if ok:
+            valid.append(candidate)
+        else:
+            rejected.append(Rejection(doi=candidate.doi, title=candidate.title,
+                                      rule=rule, reason=reason))
+
+    rejections = tuple(rejected)
+    if not valid:
+        fired = ", ".join(sorted({r.rule for r in rejections})) or "none"
+        return Unbound(
+            reason=f"all {len(rejections)} candidate(s) failed validity (rules: {fired})",
+            rejected=rejections,
+        )
+
+    scored = sorted((_score(c, item, settings) for c in valid),
+                    key=lambda c: c.score, reverse=True)
+    best, runners_up = scored[0], tuple(scored[1:4])
+
     if best.score >= bound_at:
-        status = BOUND
-    elif best.score >= weak_at:
-        status = WEAK
-    else:
-        status = UNBOUND
+        return Bound(candidate=best, abstract=best.abstract, score=best.score,
+                     runners_up=runners_up, rejected=rejections)
+    if best.score >= weak_at:
+        return Weak(candidate=best, abstract=best.abstract, score=best.score,
+                    runners_up=runners_up, rejected=rejections)
 
-    return {
-        "status": status,
-        "reason": f"best score {best.score} against bound={bound_at} weak={weak_at}",
-        "best": best.as_dict() if status != UNBOUND else None,
-        "runners_up": [c.as_dict() for c in scored[1:4]],
-        # The abstract is the text against which every number is later
-        # checked. An unbound item deliberately carries none, so its
-        # quantity claims cannot be verified and will not be published.
-        "abstract": best.abstract if status != UNBOUND else "",
-    }
+    return Unbound(
+        reason=(f"best valid candidate scored {best.score}, below the weak "
+                f"threshold {weak_at}"),
+        rejected=rejections,
+    )

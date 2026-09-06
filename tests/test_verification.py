@@ -67,12 +67,28 @@ class TestClaimVerification:
         result = claims.verify(claim, item, abstract)
         assert result["status"] == claims.VERIFIED
 
-    def test_causal_claim_without_abstract_is_hedged_not_verified(self):
+    def test_claim_without_an_abstract_is_unverifiable(self):
+        """INV-1. With no independent text there is nothing to check against.
+
+        The earlier behaviour was `hedged`, i.e. publishable with a caveat —
+        which let a claim be confirmed against the very headline it was
+        extracted from. Absence of evidence is not weak evidence.
+        """
         item = make_item("Vaccine prevents disease", "Researchers say it prevents disease")
         claim = {"text": "The vaccine prevents disease", "type": "causal", "numbers": []}
         result = claims.verify(claim, item, "")
-        assert result["status"] == claims.HEDGED
-        assert result["checked_against"] == "news_only"
+        assert result["status"] == claims.UNVERIFIABLE
+        assert result["checked_against"] == "none"
+
+    def test_a_claim_echoing_the_headline_is_not_verified_by_the_headline(self):
+        """The circularity itself: news text is never a verification source."""
+        item = make_item("Drug cuts risk by 30%", "A trial reported a 30% reduction")
+        claim = {"text": "The drug cut risk by 30%", "type": "quantity", "numbers": ["30"]}
+        assert claims.verify(claim, item, "")["status"] == claims.UNVERIFIABLE
+        # The same claim against a real abstract containing the number verifies.
+        ok = claims.verify(claim, item, "The trial reported a 30% reduction in risk.")
+        assert ok["status"] == claims.VERIFIED
+        assert ok["checked_against"] == "abstract"
 
     def test_claim_unrelated_to_sources_is_rejected(self):
         item = make_item("Vagus nerve mapped in detail")

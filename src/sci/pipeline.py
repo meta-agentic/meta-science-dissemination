@@ -61,7 +61,9 @@ def analyse_item(item: Item, store: Store, settings: Settings, llm: LLM) -> Anal
     decision = gate.evaluate(binding, corroboration, extracted, flags, settings)
 
     return Analysis(
-        binding=binding,
+        # Typed through verification; serialised only at the store boundary,
+        # so consumers upstream of here cannot read an abstract that is absent.
+        binding=binding.to_dict(),
         corroboration=corroboration,
         claims=extracted,
         hype=flags,

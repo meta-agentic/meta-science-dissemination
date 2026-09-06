@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from .bind import Binding
 from .config import Settings
 
 
-def evaluate(binding: dict[str, Any], corroboration: dict[str, Any],
+def evaluate(binding: Binding, corroboration: dict[str, Any],
              claims: list[dict[str, Any]], hype: dict[str, Any],
              settings: Settings) -> dict[str, Any]:
     """Decide publishability and explain the decision."""
@@ -26,7 +27,7 @@ def evaluate(binding: dict[str, Any], corroboration: dict[str, Any],
     verified = [c for c in claims if c.get("status") == "verified"]
     hedged = [c for c in claims if c.get("status") == "hedged"]
     independent = int(corroboration.get("independent_count", 0))
-    is_bound = binding.get("status") == "bound"
+    is_bound = binding.status == "bound"
     hype_score = float(hype.get("score", 0))
 
     blockers: list[str] = []
@@ -63,10 +64,11 @@ def evaluate(binding: dict[str, Any], corroboration: dict[str, Any],
         "counts": {
             "verified": len(verified),
             "hedged": len(hedged),
-            "unsupported": len(claims) - len(verified) - len(hedged),
+            "unsupported": len([c for c in claims if c.get("status") == "unsupported"]),
+            "unverifiable": len([c for c in claims if c.get("status") == "unverifiable"]),
             "independent": independent,
             "echo": int(corroboration.get("echo_count", 0)),
         },
         "hype_score": hype_score,
-        "binding_status": binding.get("status"),
+        "binding_status": binding.status,
     }

@@ -17,6 +17,33 @@ binding:
   bound_threshold: 0.38
   # Between weak and bound we keep the candidate but mark it unconfirmed.
   weak_threshold: 0.22
+  # --- Validity (V1-V5). Checked BEFORE scoring; a failing candidate is
+  # discarded, never down-weighted, so it can never win on a tie-breaker.
+
+  # V2 — containers publishers use to index their own journalism as "works".
+  # A news item scoring well against one of these is matching itself.
+  editorial_venues:
+    - "AAAS Articles DO Group"
+    - "Science Articles DO Group"
+
+  # V3 — DOI shapes used for news and editorial content rather than research.
+  # Science news DOIs carry an opaque suffix (10.1126/science.z5r6v9y) where
+  # research carries a structured one (10.1126/science.adr1420).
+  news_doi_patterns:
+    - "^10\\.1126/science\\.z[a-z0-9]{6,}$"
+
+  # V4 — work types that can be the study a news item is about. Editorials,
+  # letters, errata and front matter cannot. Preprints can: they are bindable
+  # and separately flagged by the limitation rules, not excluded here.
+  research_types:
+    - article
+    - journal-article
+    - review
+    - preprint
+    - posted-content
+    - proceedings-article
+    - book-chapter
+
   # Journals whose presence slightly boosts a candidate, because Science
   # news overwhelmingly covers these.
   venue_boost:
