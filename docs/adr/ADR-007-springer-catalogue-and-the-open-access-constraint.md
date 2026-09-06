@@ -55,7 +55,10 @@ is usable with attribution, non-OA abstracts are not usable at all.
 
 The gap this ADR set out to close happens to fall on the usable side. Scientific
 Reports and Nature Communications — the two feeds measured as carrying no
-abstract — are fully open access.
+abstract — are fully open access. Confirmed end-to-end on 2026-09-06: a
+Scientific Reports DOI whose feed entry carried 248 characters of boilerplate
+resolves through the metadata endpoint to an 875-character abstract flagged
+`openaccess: true`.
 
 ## Decision
 
@@ -83,11 +86,17 @@ venue and binding score; the licence identifier joins them.
 
 **5. Amend ADR-005 honestly.** That decision claimed no secret is stored, true
 while the only backend was an already-authenticated local CLI. It is no longer
-true. The free tier issues a **single key per account**, covering both the
-open-access and metadata endpoints, so there is one credential:
-`SPRINGER_API_KEY`, read from the environment and never from a file in the
-repository. Absence of the key is a normal state, handled like a catalogue
-outage; no key value reaches a log line, an error message, or the ledger.
+true. The free tier issues a **separate key per API product** — verified
+2026-09-06, the two values differ — so there are two credentials:
+`SPRINGER_META_API_KEY` and `SPRINGER_OPENACCESS_API_KEY`, read from the
+environment and never from a file in the repository. Absence of either is a
+normal state, handled like a catalogue outage; no key value reaches a log
+line, an error message, or the ledger.
+
+Environment files carrying these keys must use **legal shell identifiers**.
+A name containing a hyphen cannot be assigned by a POSIX shell, so sourcing
+the file executes the line instead and prints the secret to stderr. That is a
+standing leak into any log or CI transcript that sources it, not a one-off.
 
 **6. The agreement is entered by an individual**, acting for purposes relating
 to their own trade or profession — the first limb the agreement offers. No
@@ -126,10 +135,16 @@ is present, correct and perfectly verifiable. That is a genuinely different kind
 of rejection and the review note must say so, or an operator will read a licence
 refusal as a coverage failure and go looking for a bug that does not exist.
 
-**Deliberately deferred.** Whether open-access *full text* should replace the
-abstract as the verification substrate is not settled here. Abstracts
-systematically omit what the limitation rules most need — sample size, control
-design and stated limitations live in Methods and Results — so full text would
-materially strengthen verification while changing the cost, the failure modes
-and the extraction prompt. It deserves its own decision, on evidence from a
-spike. The open-access endpoint now available makes that spike cheap to run.
+**Deliberately deferred, and harder than it looked.** Whether open-access
+*full text* should replace the abstract as the verification substrate is not
+settled here. Abstracts systematically omit what the limitation rules most need
+— sample size, control design and stated limitations live in Methods and
+Results — so full text would materially strengthen verification.
+
+An earlier draft of this ADR assumed the open-access endpoint made that spike
+cheap. Measured 2026-09-06 against a Scientific Reports article, it does not:
+neither the JSON nor the JATS response carries a `<body>` element. Both return
+metadata and the abstract only. Whether that holds across the corpus is
+unmeasured — it may vary by article or need a parameter not yet found — but the
+spike must establish that full text is actually retrievable before assuming a
+richer substrate is available at all.
