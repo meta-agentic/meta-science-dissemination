@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 
 from sci import gate
-from sci.config import Source, load_pipeline
-from sci.config import ROOT
+from sci.bind import Bound, Candidate, Unbound
+from sci.config import ROOT, Source, load_pipeline
 
 
 @pytest.fixture
@@ -24,6 +24,21 @@ def settings():
 
 def verified(n: int) -> list[dict]:
     return [{"text": f"claim {i}", "status": "verified"} for i in range(n)]
+
+
+def bound() -> Bound:
+    """A real binding — carries an abstract by construction (ADR-001)."""
+    return Bound(
+        candidate=Candidate(doi="10.1038/x", title="A study",
+                            abstract="We report a finding."),
+        abstract="We report a finding.",
+        score=0.51,
+    )
+
+
+def unbound() -> Unbound:
+    """No primary source — and therefore no abstract attribute at all."""
+    return Unbound(reason="all candidates failed validity")
 
 
 class TestIndependence:
@@ -40,7 +55,7 @@ class TestIndependence:
 class TestGate:
     def test_bound_paper_with_verified_claim_passes(self, settings):
         decision = gate.evaluate(
-            binding={"status": "bound"},
+            binding=bound(),
             corroboration={"independent_count": 0, "echo_count": 0},
             claims=verified(2),
             hype={"score": 10, "flag_keys": []},
@@ -50,7 +65,7 @@ class TestGate:
 
     def test_unbound_with_only_echo_is_blocked(self, settings):
         decision = gate.evaluate(
-            binding={"status": "unbound"},
+            binding=unbound(),
             corroboration={"independent_count": 0, "echo_count": 3},
             claims=verified(2),
             hype={"score": 10, "flag_keys": []},
@@ -61,7 +76,7 @@ class TestGate:
 
     def test_unbound_with_two_independent_outlets_passes(self, settings):
         decision = gate.evaluate(
-            binding={"status": "unbound"},
+            binding=unbound(),
             corroboration={"independent_count": 2, "echo_count": 0},
             claims=verified(1),
             hype={"score": 0, "flag_keys": []},
@@ -71,7 +86,7 @@ class TestGate:
 
     def test_high_hype_score_blocks_a_well_sourced_item(self, settings):
         decision = gate.evaluate(
-            binding={"status": "bound"},
+            binding=bound(),
             corroboration={"independent_count": 3, "echo_count": 0},
             claims=verified(4),
             hype={"score": 95, "flag_keys": ["causal_overreach", "animal_only"]},
@@ -82,7 +97,7 @@ class TestGate:
 
     def test_no_verified_claims_blocks(self, settings):
         decision = gate.evaluate(
-            binding={"status": "bound"},
+            binding=bound(),
             corroboration={"independent_count": 5, "echo_count": 0},
             claims=[{"text": "x", "status": "unsupported"}],
             hype={"score": 0, "flag_keys": []},
@@ -93,7 +108,7 @@ class TestGate:
 
     def test_blockers_are_recorded_for_review(self, settings):
         decision = gate.evaluate(
-            binding={"status": "unbound"},
+            binding=unbound(),
             corroboration={"independent_count": 0, "echo_count": 0},
             claims=[],
             hype={"score": 99, "flag_keys": ["unbound_primary"]},

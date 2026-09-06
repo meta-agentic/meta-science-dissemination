@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .bind import Binding, Unbound
 from .config import Settings
 from .store import Item
 from .textutil import normalize
@@ -46,7 +47,7 @@ def _sample_sizes(text: str) -> list[int]:
     return [int(m.replace(",", "")) for m in _SAMPLE.findall(normalize(text))]
 
 
-def assess(item: Item, binding: dict[str, Any], corroboration: dict[str, Any],
+def assess(item: Item, binding: Binding, corroboration: dict[str, Any],
            settings: Settings) -> dict[str, Any]:
     """Score an item's overreach risk and list the reasons.
 
@@ -57,7 +58,9 @@ def assess(item: Item, binding: dict[str, Any], corroboration: dict[str, Any],
     penalties: dict[str, int] = dict(settings.pipeline.get("hype", "penalties"))
     small_at = int(settings.pipeline.get("hype", "small_sample_threshold"))
 
-    abstract = str(binding.get("abstract") or "")
+    # An unbound binding has no `abstract` attribute at all, so the branch is
+    # forced here rather than silently yielding an empty string (ADR-001).
+    abstract = "" if isinstance(binding, Unbound) else binding.abstract
     news_text = item.text
     corpus = f"{news_text} {abstract}"
 
@@ -86,7 +89,7 @@ def assess(item: Item, binding: dict[str, Any], corroboration: dict[str, Any],
                 "Headline uses causal language where the abstract reports an association.",
             )
 
-    best = binding.get("best") or {}
+    best = {} if isinstance(binding, Unbound) else binding.candidate.as_dict()
     if best.get("is_preprint"):
         flag("preprint", "Primary source is a preprint and may not be peer reviewed.")
 
@@ -96,10 +99,10 @@ def assess(item: Item, binding: dict[str, Any], corroboration: dict[str, Any],
             "Only press-release republishers carry this story; no independent reporting found.",
         )
 
-    if binding.get("status") != "bound":
+    if binding.status != "bound":
         flag(
             "unbound_primary",
-            f"Primary study could not be identified with confidence (status: {binding.get('status')}).",
+            f"Primary study could not be identified with confidence (status: {binding.status}).",
         )
 
     score = min(100, sum(int(f["penalty"]) for f in flags))
