@@ -160,6 +160,10 @@ def load_pipeline(path: Path | None = None) -> Pipeline:
     max_hype = _require(gate, "max_hype_score", "gate")
     if not isinstance(max_hype, (int, float)) or not 0 <= max_hype <= 100:
         raise ConfigError(f"gate.max_hype_score must be within [0, 100], got {max_hype!r}")
+    _ratio(
+        _require(gate, "min_evidence_completeness", "gate"),
+        "gate.min_evidence_completeness",
+    )
     return pipeline
 
 
