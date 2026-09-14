@@ -23,12 +23,17 @@ def evaluate(binding: Binding, corroboration: dict[str, Any],
     min_independent = int(settings.pipeline.get("gate", "min_independent_corroborators"))
     max_hype = float(settings.pipeline.get("gate", "max_hype_score"))
     min_verified = int(settings.pipeline.get("gate", "min_verified_claims"))
+    min_completeness = float(settings.pipeline.get("gate", "min_evidence_completeness"))
 
     verified = [c for c in claims if c.get("status") == "verified"]
     hedged = [c for c in claims if c.get("status") == "hedged"]
     independent = int(corroboration.get("independent_count", 0))
     is_bound = binding.status == "bound"
     hype_score = float(hype.get("score", 0))
+    # Fail closed. A record that does not say how much of the check suite ran
+    # is a record that cannot support a clean verdict, so absence reads as
+    # zero rather than as permission.
+    completeness = float(hype.get("evidence_completeness", 0.0))
 
     blockers: list[str] = []
     passed: list[str] = []
@@ -57,6 +62,20 @@ def evaluate(binding: Binding, corroboration: dict[str, Any],
     else:
         blockers.append(f"only {len(verified)} verified claim(s), need {min_verified}")
 
+    # G4 — INV-2 made explicit, and independent of G1 on purpose. G1 asks
+    # whether anything was confirmed; G4 asks whether the apparatus that would
+    # have found a problem was able to run at all. An item can pass G1 and
+    # fail G4 — an unbound item with no abstract scores a perfect hype 0 — and
+    # that item must not be published.
+    if completeness >= min_completeness:
+        passed.append(
+            f"{completeness:.0%} of checks could run (need {min_completeness:.0%})"
+        )
+    else:
+        blockers.append(
+            f"only {completeness:.0%} of checks could run; need {min_completeness:.0%}"
+        )
+
     return {
         "passes": not blockers,
         "blockers": blockers,
@@ -70,5 +89,6 @@ def evaluate(binding: Binding, corroboration: dict[str, Any],
             "echo": int(corroboration.get("echo_count", 0)),
         },
         "hype_score": hype_score,
+        "evidence_completeness": completeness,
         "binding_status": binding.status,
     }

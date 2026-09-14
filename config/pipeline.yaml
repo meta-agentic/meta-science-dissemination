@@ -87,6 +87,11 @@ gate:
   min_independent_corroborators: 2
   max_hype_score: 60
   min_verified_claims: 1
+  # G4. Fraction of the limitation rules that must have been able to run at
+  # all. Sits above the 0.43 (3 of 7) an item with no abstract can reach, and
+  # below the 1.0 a fully bound item reaches: a clean hype score means nothing
+  # when most of the suite never executed.
+  min_evidence_completeness: 0.6
 
 draft:
   lang: it
