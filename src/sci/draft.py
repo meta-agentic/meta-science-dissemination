@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
+from .hype import NOT_ASSESSABLE, fired_flags
 from .llm import LLM, LLMUnavailable
 from .store import Analysis, Item
 from .textutil import slugify
@@ -67,7 +68,10 @@ def _format_claims(claims: list[dict[str, Any]], status: str) -> str:
 
 
 def _format_limitations(analysis: Analysis) -> str:
-    flags = analysis.hype.get("flags", [])
+    # Only rules that fired are stated as limitations. A rule that could not
+    # run says nothing about the study, and asserting it as a finding would
+    # be the same dishonesty in the other direction (INV-2).
+    flags = fired_flags(analysis.hype)
     hedged = [c for c in analysis.claims if c.get("status") == "hedged"]
 
     lines = [f"- {f['detail']}" for f in flags]
@@ -210,6 +214,7 @@ def write_review(item: Item, analysis: Analysis, settings: Settings) -> Path:
         "status: blocked",
         f"binding_status: {_yaml_escape(analysis.binding.get('status'))}",
         f"hype_score: {analysis.hype.get('score', 0)}",
+        f"evidence_completeness: {analysis.hype.get('evidence_completeness', 0):.2f}",
         "---",
         "",
         f"# {item.title}",
@@ -221,7 +226,18 @@ def write_review(item: Item, analysis: Analysis, settings: Settings) -> Path:
     ]
     lines += [f"- {reason}" for reason in analysis.gate.get("blockers", [])]
     lines += ["", "## Limiti rilevati", ""]
-    lines += [f"- {f['detail']}" for f in analysis.hype.get("flags", [])] or ["- nessuno"]
+    lines += [f"- {f['detail']}" for f in fired_flags(analysis.hype)] or ["- nessuno"]
+
+    # "Nessun limite rilevato" would be a lie where half the suite never ran,
+    # so the review entry states what could not be checked as well (INV-2).
+    unassessable = [
+        f for f in analysis.hype.get("flags", [])
+        if f.get("status") == NOT_ASSESSABLE
+    ]
+    if unassessable:
+        lines += ["", "## Controlli non eseguibili", ""]
+        lines += [f"- {f['flag']}: {f['detail']}" for f in unassessable]
+
     lines += ["", f"[Articolo originale]({item.link})", ""]
 
     path = directory / f"{slugify(item.title)}.md"
