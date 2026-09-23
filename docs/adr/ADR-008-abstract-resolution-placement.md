@@ -79,13 +79,14 @@ which title overlap already dominates. The post-resolution score is the real
 one and uses all four terms, so a rescued abstract earns its contribution
 rather than being excluded from it.
 
-**2. The per-item call budget is `N × (chain length − 1)`, and N is
-configuration.** `binding.resolve_top_n` is a new key. The chain length is
-counted excluding the discovery catalogue, which has already answered. With the
-ADR-006/007 chain this is at most four hops per resolved candidate — Springer
-Nature (for `10.1038/` and `10.1007/` prefixes), Crossref, Europe PMC,
-Semantic Scholar — and the walk stops at the first non-empty result, so four is
-a ceiling reached only when every catalogue misses.
+**2. The per-item call budget is N resolved candidates times the number of
+hops, and N is configuration.** `binding.resolve_top_n` is a new key. A hop is
+any catalogue other than the one that discovered the candidate, which has
+already answered and cannot answer differently. With the ADR-006/007 chain that
+is four hops — Springer Nature (consulted first for `10.1038/` and `10.1007/`
+prefixes), then whichever of OpenAlex, Crossref, Europe PMC and Semantic
+Scholar did not discover it. The walk stops at the first non-empty result, so
+four is a ceiling reached only when every catalogue misses.
 
 **3. Failure of a hop is a miss, not an error, and there are no retries within
 a hop.** The chain *is* the retry: the next catalogue is the fallback, which is
@@ -102,6 +103,14 @@ returns text plus provenance, which is a different job from ranking candidates
 and deserves its own test surface. ADR-007's open-access gate is a condition on
 the value at the point the value is constructed, so it belongs in this module
 rather than in the binder that consumes it.
+
+**4b. `is_valid_candidate` splits in two.** The rules no longer run as one
+pass, so the single predicate becomes a cheap V1–V4 predicate and a separate
+V5 predicate. This is a signature change with an existing test suite attached:
+`tests/test_binding.py` calls `is_valid_candidate` in eleven places, and every
+one of those assertions is still the right assertion — the V5 cases simply move
+to the second predicate. Splitting it is mechanical; it is called out here so
+the implementer plans for it rather than discovering it.
 
 **5. Provenance is a separate field from the discovery catalogue.**
 `Candidate.catalogue` currently records which catalogue *found* the candidate.
