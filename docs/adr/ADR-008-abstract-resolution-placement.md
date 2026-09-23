@@ -33,7 +33,7 @@ decides how much it can honestly publish.
 
 ## What the code's data flow actually establishes
 
-Three facts read off the implementation, not off the prose, narrow the choice
+Four facts read off the implementation, not off the prose, narrow the choice
 before any preference is expressed.
 
 **1. The first abstract is free.** `_search_openalex` requests
@@ -200,6 +200,14 @@ replay traffic ADR-007 warns about, and inside the per-minute limit given the
 existing one-second politeness delay. The average will be far below the
 ceiling, because the walk stops at the first hit and most candidates arrive
 with an abstract already attached.
+
+**The gate feels this, not only the binder.** Four of the seven limitation
+rules declare `requires_abstract`, so an item bound without one reaches
+`evidence_completeness` of 3/7 = 0.43 and no higher, against G4's floor of 0.6.
+A rescued abstract therefore does not merely let an item bind — it is the
+difference between an item that can clear G4 and one that structurally cannot.
+Placing resolution before V5 moves candidates across that line; placing it
+after selection cannot.
 
 **The binder gains a network dependency in its middle.** `bind_item` previously
 made one or two calls and then computed; it now makes calls between two
