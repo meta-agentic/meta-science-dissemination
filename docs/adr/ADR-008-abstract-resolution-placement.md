@@ -124,12 +124,128 @@ the gate lives in the resolver and not downstream of it.
 
 ## Rejected placements
 
-<!-- pending -->
+**R1 — Resolve at ingestion, as each feed item is fetched.** Cheapest to
+reason about and wrong for a reason that no budget can fix: the dependency does
+not exist yet. M2 records that `prism:doi` in the Science news feed is the DOI
+*of the news article*, never of the study. At ingestion the only key in hand is
+precisely the one key the chain must not be given. There is nothing to resolve
+against until discovery has produced candidate DOIs, so this placement is not
+expensive, it is impossible.
+
+**R2 — Resolve after selection, on the winning candidate only.** This is
+ADR-006 read literally — "three additional HTTP calls per bound item" — and it
+is the cheapest placement that is actually implementable. It loses on
+correctness, twice over.
+
+First, it cannot deliver the benefit ADR-006 claims for it. V5 has already
+discarded every blank-abstract candidate, so the winner is drawn from a
+population the chain was never allowed to widen. A paper whose abstract only
+Europe PMC holds is gone before the call is made, and ADR-006's "three further
+chances to become verifiable" describes an event that cannot occur. The only
+candidate the chain can reach is one that already had an abstract and therefore
+did not need it.
+
+Second, if V5 is moved out of the way to let blank candidates through to
+scoring, the ranking becomes dishonest rather than merely incomplete. `_score`
+gives the abstract term 0.25 of the weight. A blank-abstract candidate scores
+zero on that term while a candidate that happened to carry a free abstract
+scores up to 0.25, so the two are not compared on the same basis — the winner
+would be selected partly for the coverage luck of its catalogue record rather
+than for being the right paper. Dropping the abstract term to restore symmetry
+discards a quarter of the scoring signal from every binding, including the
+majority that never needed a rescue.
+
+**R3 — Resolve before V5, for every candidate.** This is `docs/02-pseudocode.md`
+§A taken at face value, and it is the only option that is unambiguously
+faithful to the written ordering. It loses on cost, and the margin is not
+close.
+
+`binding.max_candidates` is 25. With the ADR-006/007 chain at four hops beyond
+discovery, the ceiling is 100 calls per news item and roughly 1,000 a day at
+the ten items M1 measures. ADR-007 records the only hard quota in the project —
+Springer Nature at 500 requests a day and 100 a minute — so the worst case is
+twice the documented daily limit of a catalogue this pipeline depends on, and
+the per-minute limit would be breached inside a single item. §8 also constrains
+the pipeline to be polite to key-free public APIs; issuing 100 DOI lookups to
+resolve one news item is not that. The bound in Decision 1 exists precisely to
+convert this ceiling from a function of `max_candidates` into a function of a
+number someone chose.
+
+**R4 — Resolve lazily in the verification stage, when a claim first needs a
+substrate.** Attractive because it spends nothing on items that never reach
+verification. It is forbidden by the type system, and that is the correct
+outcome rather than an obstacle. ADR-001 makes `Bound` carry a non-empty
+abstract by construction and `Bound.__post_init__` raises on a blank one, so a
+binding cannot be returned in a state where an abstract is still outstanding.
+Deferring resolution past `bind` therefore requires reintroducing exactly the
+representable-but-invalid state — bound, no abstract — that produced the
+spike's four self-verified items. The lazy placement is unavailable because
+D2 deliberately removed the state it needs.
 
 ## Consequences
 
-<!-- pending -->
+**Good.** ADR-006's stated benefit becomes reachable for the first time: a
+candidate whose abstract lives in a catalogue other than the one that found it
+can now enter scoring instead of being discarded. The abstract term keeps its
+0.25 of the weight and is applied to every candidate on the same basis, because
+resolution happens before the score rather than after it. The pipeline's
+exposure to a single catalogue's coverage or uptime drops at the point where
+ADR-006 always meant it to.
+
+**Cost, stated as a ceiling rather than an average.** The worst case is
+`resolve_top_n × 4` calls per news item, all on the miss path. Against M1's ten
+items a day, an N of 5 gives a ceiling of 200 calls a day spread over five
+catalogues — inside Springer's 500-a-day limit with room for the backfill and
+replay traffic ADR-007 warns about, and inside the per-minute limit given the
+existing one-second politeness delay. The average will be far below the
+ceiling, because the walk stops at the first hit and most candidates arrive
+with an abstract already attached.
+
+**The binder gains a network dependency in its middle.** `bind_item` previously
+made one or two calls and then computed; it now makes calls between two
+computation steps, which lengthens the stage and makes its duration depend on
+how many blanks the discovery catalogue returned. Every hop degrades to a miss
+rather than an error, so a catalogue outage costs latency and yield but never
+correctness — the run still completes and the item still reports honestly.
+
+**Two ranks are computed where there was one.** The pre-resolution rank is
+throwaway and must never be written to the ledger or compared against a
+threshold, or a reader will find two different scores for the same candidate
+and no way to tell which one decided anything. Only the post-resolution score
+is the score.
+
+**A new kind of unbound reason.** An item may now fail to bind because its
+rescuable candidates fell outside the top N, which is a budget outcome rather
+than an evidence outcome. The reason string has to say so, for the same reason
+ADR-007 insisted a licence refusal must not read as a coverage failure: an
+operator who reads "no valid candidate" and goes looking for a missing paper,
+when the answer is that N is too small, is debugging the wrong system.
 
 ## Open decisions
 
-<!-- pending -->
+**OD-1 — The value of `resolve_top_n`.** The measurement below bounds it from
+one side but does not fix it. The number that settles it is the rank, in the
+abstract-free ordering, at which the eventual winner sits — measured over
+enough items to be more than an anecdote. Until that exists, 5 is a defensible
+starting value and is explicitly provisional.
+
+**OD-2 — Whether a rescued abstract should be cached across runs.** The chain
+is idempotent and DOIs are stable, so a store-backed cache would cut the
+steady-state call count sharply on replay and backfill. It is deliberately not
+decided here, because ADR-007 §3 forbids retaining non-OA text at all and a
+cache that cannot distinguish OA from non-OA entries would breach that. Whoever
+takes this must design the cache around the licence flag, not add the flag to a
+cache.
+
+**OD-3 — Whether Springer should be consulted first for all DOIs or only for
+`10.1038/` and `10.1007/`.** ADR-007 decided the prefix rule on plausibility,
+not measurement. The hop-order question is only worth reopening if the
+measurement shows Springer rescuing DOIs outside those prefixes often enough to
+justify moving it earlier for everyone; it is unmeasured here because the probe
+ran without the keys.
+
+**OD-4 — Whether the pre-resolution rank should use a renormalised three-term
+score or simply title overlap.** Decision 1 specifies renormalisation because
+it reuses a formula that already exists. Title overlap alone would be simpler
+and, given that it already carries 0.55 of the weight, might select the same
+prefix. Not worth a decision until someone has both orderings over real items.
