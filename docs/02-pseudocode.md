@@ -16,8 +16,16 @@ editorially worthless. Validity is therefore checked **before** scoring, and a
 candidate that fails is discarded rather than down-weighted — a rejected
 candidate must never be able to win on tie-breakers.
 
+The rules split into two groups, and the split matters because one of them
+costs money. V1–V4 read fields the discovery response already carried, so they
+are free and run first. V5 asks whether an abstract exists, and since ADR-006
+can *obtain* one that the discovery catalogue lacked, asking it too early
+discards candidates the resolution chain was built to rescue. V5 therefore runs
+**after** resolution, over the candidates that survived V1–V4 — see ADR-008 for
+the placement and its call budget.
+
 ```
-FUNCTION is_valid_candidate(candidate, news_item) -> (bool, reason)
+FUNCTION passes_cheap_validity(candidate, news_item) -> (bool, reason)
 
     # V1 — identity. The item cannot be its own primary source.
     IF normalise(candidate.doi) == normalise(news_item.doi):
@@ -40,10 +48,19 @@ FUNCTION is_valid_candidate(candidate, news_item) -> (bool, reason)
     IF candidate.type NOT IN config.research_types:
         RETURN false, "work type '{candidate.type}' is not research"
 
+    RETURN true, "valid so far"
+
+
+FUNCTION passes_v5(candidate) -> (bool, reason)
+
     # V5 — THE INVARIANT. Binding exists solely to obtain independent text to
     # verify against. A candidate with no abstract cannot serve that purpose,
     # however well its title matches. This single rule would have blocked all
     # four of the spike's false bindings.
+    #
+    # Applied only once the resolution chain has had its chance, so that
+    # "no abstract" means "no catalogue has one", not "the catalogue that
+    # found it did not carry one" (ADR-006, ADR-008).
     IF is_blank(candidate.abstract):
         RETURN false, "no abstract: cannot serve as verification substrate"
 
@@ -67,7 +84,18 @@ FUNCTION bind(news_item) -> Binding
     IF raw is empty:
         raw <- crossref_search(salient_terms(news_item), window)
 
-    valid, rejected <- partition(raw, is_valid_candidate)
+    # V1-V4 first: free, and they remove candidates no chain could rescue.
+    survivors, rejected <- partition(raw, passes_cheap_validity)
+
+    # Resolution, bounded. Rank on the abstract-free components purely to
+    # decide who is worth a call; this ordering is thrown away afterwards.
+    prefix <- top_n(survivors, by = title + proximity + venue, n = resolve_top_n)
+    FOR c IN prefix WHERE is_blank(c.abstract) AND c.doi is present:
+        c.abstract, c.abstract_source <- resolve_abstract(c.doi)   # ADR-006/007
+
+    # V5 now, against the resolved text.
+    valid, late_rejected <- partition(survivors, passes_v5)
+    rejected <- rejected + late_rejected
 
     # Rejections are retained. "We found the paper but it was a preprint" and
     # "we found nothing at all" are different editorial situations, and the
@@ -75,6 +103,8 @@ FUNCTION bind(news_item) -> Binding
     IF valid is empty:
         RETURN Unbound(reason=summarise(rejected), rejected=rejected)
 
+    # The real score, all four terms, over candidates that all had the same
+    # chance of carrying an abstract.
     scored <- [score(c, news_item) FOR c IN valid]
     best   <- max(scored)
 
@@ -84,8 +114,9 @@ FUNCTION bind(news_item) -> Binding
                    rejected=rejected)
 ```
 
-`Bound` and `Weak` both carry a non-empty abstract by construction of A/V5.
-`Unbound` carries none. This is what makes INV-1 enforceable by type rather
+`Bound` and `Weak` both carry a non-empty abstract by construction of A/V5,
+and record which catalogue supplied it separately from which one found the
+candidate — after ADR-008 those routinely differ. `Unbound` carries none. This is what makes INV-1 enforceable by type rather
 than by discipline (see Architecture, ADR-001).
 
 Scoring is unchanged from the spike and remains: `0.55·title + 0.25·abstract +

@@ -99,6 +99,9 @@ guaranteed at the type boundary rather than trusted to the search code.
 | [ADR-003](adr/ADR-003-independent-corroboration.md) | Widen the independent pool to 8; unbound is unpublishable by construction |
 | [ADR-004](adr/ADR-004-model-proposes-code-verifies.md) | The model proposes claims and writes prose; nothing else |
 | [ADR-005](adr/ADR-005-headless-cli-backend.md) | Reasoning via the local `claude` CLI; no secret on disk |
+| [ADR-006](adr/ADR-006-abstract-resolution-chain.md) | Abstracts resolve through an ordered DOI-keyed catalogue chain, not one source |
+| [ADR-007](adr/ADR-007-springer-catalogue-and-the-open-access-constraint.md) | Springer Nature joins the chain, open-access content only, enforced in code |
+| [ADR-008](adr/ADR-008-abstract-resolution-placement.md) | The chain runs inside `bind`, between discovery and V5, over a bounded candidate prefix |
 
 ## 5. Data flow and the ledger
 
