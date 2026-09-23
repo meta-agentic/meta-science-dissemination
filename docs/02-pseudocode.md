@@ -103,8 +103,10 @@ FUNCTION bind(news_item) -> Binding
     IF valid is empty:
         RETURN Unbound(reason=summarise(rejected), rejected=rejected)
 
-    # The real score, all four terms, over candidates that all had the same
-    # chance of carrying an abstract.
+    # The real score, all four terms. A candidate outside the resolved
+    # prefix never got the chance to fill a blank abstract, so an item that
+    # fails here may be failing on budget rather than on evidence — the
+    # Unbound reason has to distinguish the two (ADR-008).
     scored <- [score(c, news_item) FOR c IN valid]
     best   <- max(scored)
 
