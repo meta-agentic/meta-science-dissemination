@@ -49,5 +49,8 @@ corroborators:
 # Deliberately absent:
 #   eurekalert  — every documented feed path returns 404 (checked 2026-08-03).
 #   altmetric   — public API returns 403 without a key.
+#   sciadv      — Science Advances TOC feed carries no abstract, and matched
+#                 1 of 120 sampled news items (checked 2026-09-25). A journal
+#                 is never a corroborator: see ADR-009.
 # Do not re-add without re-probing; a silently dead feed looks like
 # "no corroboration found" and biases every score downward.
