@@ -28,6 +28,54 @@ corroborators:
     independence: 1.0
     lang: en
 
+  # The six newsrooms below widen the independent pool from two to eight
+  # (ADR-003). Each comment records the date the url above it last returned
+  # HTTP 200 with parseable items, and how many it carried. Re-probe before
+  # trusting a date older than a few months.
+
+  - id: guardian_science
+    name: The Guardian — Science
+    # verified 2026-10-04: HTTP 200, 27 items
+    url: https://www.theguardian.com/science/rss
+    independence: 1.0
+    lang: en
+
+  - id: bbc_science
+    name: BBC — Science & Environment
+    # verified 2026-10-04: HTTP 200, 42 items
+    url: https://feeds.bbci.co.uk/news/science_and_environment/rss.xml
+    independence: 1.0
+    lang: en
+
+  - id: nyt_science
+    name: NYT — Science
+    # verified 2026-10-04: HTTP 200, 29 items
+    url: https://rss.nytimes.com/services/xml/rss/nyt/Science.xml
+    independence: 1.0
+    lang: en
+
+  - id: stat_news
+    name: STAT News
+    # verified 2026-10-04: HTTP 200, 20 items
+    url: https://www.statnews.com/feed/
+    independence: 1.0
+    lang: en
+
+  - id: new_scientist
+    name: New Scientist — News
+    # verified 2026-10-04: HTTP 200, 10 items
+    # (newscientist.com/subject/news/feed/ returns 404; this is the live path)
+    url: https://www.newscientist.com/section/news/feed/
+    independence: 1.0
+    lang: en
+
+  - id: quanta
+    name: Quanta Magazine
+    # verified 2026-10-04: HTTP 200, 5 items
+    url: https://www.quantamagazine.org/feed/
+    independence: 1.0
+    lang: en
+
   - id: phys_org
     name: Phys.org
     url: https://phys.org/rss-feed/
@@ -48,6 +96,7 @@ corroborators:
 
 # Deliberately absent:
 #   eurekalert  — every documented feed path returns 404 (checked 2026-08-03).
+#   nature news — nature.com/subjects/news.rss returns 404 (checked 2026-08-03).
 #   altmetric   — public API returns 403 without a key.
 #   sciadv      — Science Advances TOC feed carries no abstract, and matched
 #                 1 of 120 sampled news items (checked 2026-09-25). A journal

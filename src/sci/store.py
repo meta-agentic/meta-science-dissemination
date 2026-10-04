@@ -286,6 +286,22 @@ class Store:
                 (utcnow(), 1 if ok else 0, json.dumps(detail, ensure_ascii=False), run_id),
             )
 
+    def last_run_detail(self, stage: str) -> dict[str, Any] | None:
+        """Detail of the most recent finished run of `stage`, or None.
+
+        A run still in progress has no detail yet and is skipped, so a fetch
+        that crashed mid-way never masks the last one that completed.
+        """
+        row = self._conn.execute(
+            """
+            SELECT detail FROM runs
+            WHERE stage = ? AND ended_at IS NOT NULL
+            ORDER BY id DESC LIMIT 1
+            """,
+            (stage,),
+        ).fetchone()
+        return json.loads(row["detail"] or "{}") if row else None
+
     def stats(self) -> dict[str, int]:
         def count(sql: str) -> int:
             return int(self._conn.execute(sql).fetchone()[0])

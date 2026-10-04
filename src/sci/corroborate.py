@@ -42,6 +42,31 @@ def _within_window(item: Item, other: Item, window_days: int) -> bool:
     return abs(right - left) <= timedelta(days=window_days)
 
 
+def feed_health(store: Store, settings: Settings) -> dict[str, str]:
+    """Each corroborator's state in the last completed fetch run.
+
+    `ok` — fetched, so an absence of matches there is a real absence.
+    `failed` — the fetch failed, so the source was never really searched.
+    `unknown` — no completed fetch run mentions the source at all.
+
+    Without this a dead feed reads exactly like "no outlet carried the
+    story", and every corroboration score is biased downward in silence.
+    """
+    detail = store.last_run_detail("fetch") or {}
+    failed = set(detail.get("failed") or [])
+    reported = {r.get("source") for r in detail.get("sources") or [] if r.get("ok")}
+
+    health: dict[str, str] = {}
+    for source in settings.sources.corroborators:
+        if source.id in failed:
+            health[source.id] = "failed"
+        elif source.id in reported:
+            health[source.id] = "ok"
+        else:
+            health[source.id] = "unknown"
+    return health
+
+
 def corroborate_item(item: Item, store: Store, settings: Settings) -> dict[str, Any]:
     """Find other outlets carrying the same story, weighted by independence."""
     window = int(settings.pipeline.get("corroboration", "window_days"))
@@ -76,6 +101,7 @@ def corroborate_item(item: Item, store: Store, settings: Settings) -> dict[str, 
 
     independent.sort(key=lambda r: r["similarity"], reverse=True)
     echo.sort(key=lambda r: r["similarity"], reverse=True)
+    health = feed_health(store, settings)
 
     return {
         "independent": independent,
@@ -86,4 +112,8 @@ def corroborate_item(item: Item, store: Store, settings: Settings) -> dict[str, 
         # the story is travelling, but nobody has checked it.
         "press_release_only": not independent and bool(echo),
         "searched_sources": [s.id for s in settings.sources.corroborators],
+        # Recorded, not gated on: a dead feed is disclosed beside the counts
+        # it depresses, and whether it should block is a separate decision.
+        "feed_health": health,
+        "unfetched_sources": [sid for sid, state in health.items() if state == "failed"],
     }
