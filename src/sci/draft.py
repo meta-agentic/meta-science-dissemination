@@ -37,8 +37,8 @@ OCCHIELLO ORIGINALE: {summary}
 AFFERMAZIONI VERIFICATE — queste, e solo queste, puoi affermare:
 {verified}
 
-AFFERMAZIONI NON CONFERMATE — non usarle, non parafrasarle, non alludervi:
-{rejected}
+AFFERMAZIONI ESCLUSE: {withheld} affermazioni non hanno superato le verifiche
+e sono state rimosse da questo elenco. Non cercare di ricostruirle.
 
 LIMITI DA DICHIARARE ESPLICITAMENTE NEL POST:
 {limitations}
@@ -60,11 +60,31 @@ Non aggiungere metadati, non aggiungere fonti, non usare markdown per il
 titolo. Restituisci solo il testo del post."""
 
 
+# The only statuses whose text may reach the model. Selection is positive:
+# anything not named here, including statuses added later, is withheld by
+# construction rather than by a list of exclusions that could fall behind.
+_DRAFTABLE = ("verified", "hedged")
+
+
+def _select(claims: list[dict[str, Any]], status: str) -> list[dict[str, Any]]:
+    if status not in _DRAFTABLE:
+        raise ValueError(f"claim status {status!r} may not reach the prompt")
+    return [c for c in claims if c.get("status") == status and c.get("text")]
+
+
 def _format_claims(claims: list[dict[str, Any]], status: str) -> str:
-    selected = [c for c in claims if c.get("status") == status and c.get("text")]
+    selected = _select(claims, status)
     if not selected:
         return "(nessuna)"
     return "\n".join(f"- {c['text']}" for c in selected)
+
+
+def _withheld_count(claims: list[dict[str, Any]]) -> int:
+    # Rejected claims are counted, never quoted: omission is a stronger
+    # control over a generative model than an instruction not to use them.
+    verified = [c for c in claims if c.get("status") == "verified"]
+    hedged = [c for c in claims if c.get("status") == "hedged"]
+    return len(claims) - len(verified) - len(hedged)
 
 
 def _format_limitations(analysis: Analysis) -> str:
@@ -72,12 +92,12 @@ def _format_limitations(analysis: Analysis) -> str:
     # run says nothing about the study, and asserting it as a finding would
     # be the same dishonesty in the other direction (INV-2).
     flags = fired_flags(analysis.hype)
-    hedged = [c for c in analysis.claims if c.get("status") == "hedged"]
+    hedged = _select(analysis.claims, "hedged")
 
     lines = [f"- {f['detail']}" for f in flags]
     lines += [
         f"- Questa affermazione e' solo un'associazione, non una causa: {c['text']}"
-        for c in hedged if c.get("text")
+        for c in hedged
     ]
     if analysis.binding.get("status") != "bound":
         lines.append(
@@ -102,25 +122,45 @@ def _format_corroboration(analysis: Analysis) -> str:
     return ", ".join(f"{r['name']}" for r in independent)
 
 
-def generate(item: Item, analysis: Analysis, llm: LLM, settings: Settings) -> str:
-    """Produce the Italian post body. Raises LLMUnavailable if it cannot."""
-    prompt = _PROMPT.format(
+def build_prompt(item: Item, analysis: Analysis, settings: Settings) -> str:
+    """The drafting prompt: verified and hedged claims only, plus a count."""
+    return _PROMPT.format(
         title=item.title,
         summary=item.summary or "(nessuno)",
         verified=_format_claims(analysis.claims, "verified"),
-        rejected=_format_claims(analysis.claims, "unsupported"),
+        withheld=_withheld_count(analysis.claims),
         limitations=_format_limitations(analysis),
         primary=_format_primary(analysis),
         corroboration=_format_corroboration(analysis),
         register=str(settings.pipeline.get("draft", "register")).strip(),
         max_words=int(settings.pipeline.get("draft", "max_words")),
     )
+
+
+def generate(item: Item, analysis: Analysis, llm: LLM, settings: Settings) -> str:
+    """Produce the Italian post body. Raises LLMUnavailable if it cannot."""
+    prompt = build_prompt(item, analysis, settings)
     return llm.complete(prompt, system=_SYSTEM).strip()
 
 
 def _yaml_escape(value: Any) -> str:
     text = str(value).replace('"', "'").replace("\n", " ")
     return f'"{text}"'
+
+
+def _claim_ledger(analysis: Analysis) -> list[str]:
+    # The full ledger, rejected text included, for a human reader. It is
+    # never part of the prompt.
+    lines = []
+    for claim in analysis.claims:
+        if not claim.get("text"):
+            continue
+        mark = {"verified": "OK", "hedged": "CAUTELA", "unsupported": "NON CONFERMATA"}.get(
+            str(claim.get("status")), "?"
+        )
+        lines.append(f"- **[{mark}]** {claim['text']}")
+        lines.append(f"  - motivo: {claim.get('reason', '')}")
+    return lines
 
 
 def render(item: Item, analysis: Analysis, body: str, settings: Settings) -> str:
@@ -159,14 +199,7 @@ def render(item: Item, analysis: Analysis, body: str, settings: Settings) -> str
     lines += ["---", "", body, "", "---", "", "## Registro delle verifiche", ""]
 
     lines.append("### Affermazioni")
-    for claim in analysis.claims:
-        if not claim.get("text"):
-            continue
-        mark = {"verified": "OK", "hedged": "CAUTELA", "unsupported": "NON CONFERMATA"}.get(
-            str(claim.get("status")), "?"
-        )
-        lines.append(f"- **[{mark}]** {claim['text']}")
-        lines.append(f"  - motivo: {claim.get('reason', '')}")
+    lines += _claim_ledger(analysis)
 
     if independent or echo:
         lines += ["", "### Altre testate"]
@@ -237,6 +270,10 @@ def write_review(item: Item, analysis: Analysis, settings: Settings) -> Path:
     if unassessable:
         lines += ["", "## Controlli non eseguibili", ""]
         lines += [f"- {f['flag']}: {f['detail']}" for f in unassessable]
+
+    ledger = _claim_ledger(analysis)
+    if ledger:
+        lines += ["", "## Affermazioni", ""] + ledger
 
     lines += ["", f"[Articolo originale]({item.link})", ""]
 
